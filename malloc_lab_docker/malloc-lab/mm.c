@@ -342,22 +342,87 @@ void *mm_malloc(size_t size)
     return bp; //payload 시작 주소  
 }
 
+
+
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
 void *mm_realloc(void *ptr, size_t size)
-{
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
+{   
 
-    newptr = mm_malloc(size);
+    size_t asize;
+    size_t oldSize;
+
+
+    if (ptr == NULL) {
+        return mm_malloc(size); //새로 생성
+    }
+
+    if (size == 0) {
+        mm_free(ptr); // 기존 메모리 해제 후 NULL 반환
+        return NULL;
+    }
+
+    if (size <= DSIZE)
+        asize = 2*DSIZE;
+    else
+        asize = DSIZE * ((size + (DSIZE) + (DSIZE-1)) / DSIZE); // header/footer overhead를 더하고, 8바이트 단위로 올림
+
+    oldSize = GET_SIZE(HDRP(ptr));
+
+    if (asize <= oldSize) { //필요 크기가 작거나 같은 경우
+        return ptr;
+    }
+
+    void *next = NEXT_BLKP(ptr);
+    size_t nextAlloc = GET_ALLOC(HDRP(next));
+    size_t nextSize = GET_SIZE(HDRP(next));
+
+    // 다음 블록이 에필로그면(크기 0) 부족한 만큼 힙을 늘림
+    if (nextSize == 0) {
+
+        /* 부족한 바이트 수 = asize - oldSize
+                extend_heap은 '워드 수'를 받음 → 변환
+                실패(NULL)하면 NULL 리턴 
+        */
+        size_t lackSize = asize - oldSize;
+        if (!extend_heap(lackSize/WSIZE)) {
+            return NULL;
+        }
+
+        /* 새로 생긴 블록 기준으로 next, next_alloc, next_size 다시 읽기 */
+        next = NEXT_BLKP(ptr);
+        nextAlloc = GET_ALLOC(HDRP(next));
+        nextSize = GET_SIZE(HDRP(next));
+    }
+
+    // 다음 블록 병합후 쓸만큼 쓰고 다시 남은부분 free
+    if (!nextAlloc && oldSize + nextSize >= asize) {
+        size_t total = oldSize + nextSize;
+
+        // [트리 전환 시] 여기서 next 블록을 remove_free 해야 함
+
+        // total 크기로 헤더 → 푸터 순서로, 할당 상태로 만듦
+        PUT(HDRP(ptr), PACK(total, 1)); // 현재 블록의 헤더 크기를 total(현재 블록 + 다음 블록)로 바꿈
+        PUT(FTRP(ptr), PACK(total, 1));
+
+        // 남는 부분 쪼개기
+        place(ptr, asize);
+
+        return ptr;
+    }
+
+
+    // 제자리에서 못 키우는 경우: 새로 복사
+    void *newptr = mm_malloc(size);
     if (newptr == NULL)
         return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+
+    size_t copySize = oldSize - DSIZE;   // 옛 payload 크기
     if (size < copySize)
         copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
+
+    memcpy(newptr, ptr, copySize);
+    mm_free(ptr);
     return newptr;
 }
