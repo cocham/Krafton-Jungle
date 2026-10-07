@@ -78,8 +78,9 @@ static char *heap_listp;   /* 프롤로그 payload를 가리킴 */
 /* 도우미 함수 프로토타입 */
 static void *extend_heap(size_t words);
 static void *coalesce(void *bp);
-static void *find_fit(size_t asize);
+//static void *find_fit(size_t asize);
 static void place(void *bp, size_t asize);
+static void *best_fit(size_t asize);
 
 /*
  * mm_init - initialize the malloc package.
@@ -234,19 +235,44 @@ static void *coalesce(void *bp)
 
 
 // 힙을 앞에서부터 훑어서, 비어 있고 크기가 asize 이상인 첫 블록의 bp를 돌려준다. 없으면 NULL.
-static void *find_fit(size_t asize)
-{
+// static void *find_fit(size_t asize)
+// {
+//     void *bp;
+
+//     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+//         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) { //할당이 안 돼있고 사이즈가 맞으면
+//             return bp;
+//         }
+//     }
+
+//     return NULL;
+// }
+
+
+static void *best_fit(size_t asize) {
     void *bp;
 
+    void *best_bp = NULL;               // 지금까지 발견한 가장 적절한 free block 주소 저장
+    size_t best_size = (size_t) - 1;    // 큰 값으로 초기화
+
+
     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
-        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) { //할당이 안 돼있고 사이즈가 맞으면
-            return bp;
+        size_t curSize = GET_SIZE(HDRP(bp));
+
+        if (!GET_ALLOC(HDRP(bp)) && (asize <= curSize)) { //할당이 안 돼있고 들어갈 수 있다면
+            if (asize == curSize) {
+                return bp;
+            }
+            if (curSize < best_size) {
+                best_bp = bp;
+                best_size = curSize;
+            }
         }
     }
 
-    return NULL;
-}
+    return best_bp;
 
+}
 
 
 
@@ -302,7 +328,7 @@ void *mm_malloc(size_t size)
         asize = DSIZE * ((size + (DSIZE) + (DSIZE-1)) / DSIZE); // header/footer overhead를 더하고, 8바이트 단위로 올림
 
     /* Search the free list for a fit */
-    if ((bp = find_fit(asize)) != NULL) {
+    if ((bp = best_fit(asize)) != NULL) {
         place(bp, asize);
         return bp;
     }
@@ -316,7 +342,6 @@ void *mm_malloc(size_t size)
     return bp; //payload 시작 주소  
 }
 
-
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
@@ -329,11 +354,7 @@ void *mm_realloc(void *ptr, size_t size)
     newptr = mm_malloc(size);
     if (newptr == NULL)
         return NULL;
-
-    // 헤더에서 블록 크기를 읽고, 헤더+푸터 오버헤드를 빼서 payload 크기를 구하는 식으로 수정
-    copySize = GET_SIZE(HDRP(oldptr)) - DSIZE; // DSIZE = - 4(헤더) - 4(푸터) = -8
-
-    //copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
     if (size < copySize)
         copySize = size;
     memcpy(newptr, oldptr, copySize);
